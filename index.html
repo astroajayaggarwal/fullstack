@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Panchang Details with Gemini Interpretation</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .loader {
+            border-top-color: #3498db;
+            -webkit-animation: spin 1s linear infinite;
+            animation: spin 1s linear infinite;
+        }
+        .small-loader {
+            width: 16px;
+            height: 16px;
+            border-width: 2px;
+        }
+        @-webkit-keyframes spin {
+            0% { -webkit-transform: rotate(0deg); }
+            100% { -webkit-transform: rotate(360deg); }
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .interpretation-content h4 {
+            font-weight: 600;
+            margin-top: 0.75rem;
+            margin-bottom: 0.25rem;
+        }
+        .interpretation-content ul {
+            list-style-type: disc;
+            padding-left: 1.5rem;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800">
+
+    <div class="container mx-auto p-4 sm:p-6 lg:p-8">
+        <div class="max-w-4xl mx-auto bg-white rounded-2xl shadow-lg p-6 sm:p-8">
+            <header class="text-center mb-8">
+                <h1 class="text-3xl sm:text-4xl font-bold text-gray-900">Panchang Finder</h1>
+                <p class="text-gray-600 mt-2">Get daily Panchang details with ✨ AI-powered interpretations.</p>
+            </header>
+
+            <!-- Form Section -->
+            <form id="panchangForm" class="grid grid-cols-1 md:grid-cols-3 gap-6 items-end">
+                <div>
+                    <label for="startDate" class="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
+                    <input type="date" id="startDate" name="startDate" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition" required>
+                </div>
+                <div>
+                    <label for="endDate" class="block text-sm font-medium text-gray-700 mb-1">End Date</label>
+                    <input type="date" id="endDate" name="endDate" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition" required>
+                </div>
+                <div>
+                    <label for="location" class="block text-sm font-medium text-gray-700 mb-1">Location</label>
+                    <input type="text" id="location" name="location" placeholder="e.g., New Delhi, India" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition" required>
+                </div>
+                <div class="md:col-span-3 text-center mt-4">
+                    <button type="submit" class="w-full md:w-auto bg-blue-600 text-white font-semibold px-8 py-3 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-transform transform hover:scale-105">
+                        Get Panchang
+                    </button>
+                </div>
+            </form>
+
+            <!-- Results Section -->
+            <div id="results" class="mt-10">
+                <div id="loader" class="hidden justify-center items-center">
+                    <div class="loader ease-linear rounded-full border-8 border-t-8 border-gray-200 h-24 w-24"></div>
+                </div>
+                <div id="error-message" class="hidden text-center p-4 bg-red-100 text-red-700 rounded-lg"></div>
+                <div id="panchang-data" class="space-y-6">
+                    <!-- Dynamic content will be injected here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- DOM Elements ---
+        const panchangForm = document.getElementById('panchangForm');
+        const loader = document.getElementById('loader');
+        const errorMessage = document.getElementById('error-message');
+        const panchangDataContainer = document.getElementById('panchang-data');
+
+        // --- Event Listeners ---
+        panchangForm.addEventListener('submit', handleFormSubmit);
+        // Use event delegation for the dynamically added buttons
+        panchangDataContainer.addEventListener('click', handleInterpretationClick);
+
+        /**
+         * Handles the main form submission to fetch Panchang data.
+         */
+        async function handleFormSubmit(e) {
+            e.preventDefault();
+            panchangDataContainer.innerHTML = '';
+            errorMessage.classList.add('hidden');
+            loader.style.display = 'flex';
+
+            const formData = new FormData(panchangForm);
+            const startDate = formData.get('startDate');
+            const endDate = formData.get('endDate');
+            const location = formData.get('location');
+            
+            if (new Date(startDate) > new Date(endDate)) {
+                showError("Start date cannot be after end date.");
+                return;
+            }
+
+            try {
+                // In a real scenario, you would use:
+                // const apiUrl = `http://127.0.0.1:5000/panchang?start_date=${startDate}&end_date=${endDate}&location=${encodeURIComponent(location)}`;
+                // const response = await fetch(apiUrl);
+                // const data = await response.json();
+                const data = await mockFetchPanchang(startDate, endDate, location);
+
+                if (data.error) {
+                    showError(data.error);
+                } else {
+                    displayPanchangData(data.panchang);
+                }
+            } catch (error) {
+                console.error('Error fetching data:', error);
+                showError('Failed to connect to the backend server. Please ensure it is running.');
+            } finally {
+                loader.style.display = 'none';
+            }
+        }
+
+        /**
+         * Handles clicks on the "Interpret Panchang" buttons.
+         */
+        async function handleInterpretationClick(e) {
+            if (!e.target.matches('.interpret-btn')) return;
+
+            const button = e.target;
+            const panchangItem = JSON.parse(button.dataset.panchang);
+            const interpretationDiv = document.getElementById(`interp-${panchangItem.date}`);
+            
+            // Show a small loader inside the button
+            button.disabled = true;
+            button.innerHTML = `<div class="loader small-loader ease-linear rounded-full border-2 border-t-2 border-gray-200"></div><span class="ml-2">Interpreting...</span>`;
+
+            try {
+                const apiKey = ""; // Leave empty, will be handled by the environment
+                const prompt = `You are an expert in Vedic astrology. Based on the following Panchang details for a specific day, provide a simple, easy-to-understand interpretation for a layperson. Explain the general energy of the day and suggest 2-3 auspicious activities. Keep the tone positive and encouraging. Format the output as simple HTML with h4 for headings and ul/li for lists.
+
+                **Panchang Details:**
+                - Tithi: ${panchangItem.tithi}
+                - Nakshatra: ${panchangItem.nakshatra}
+                - Yoga: ${panchangItem.yoga}
+                - Karana: ${panchangItem.karana}
+                - Location: ${document.getElementById('location').value}
+                - Date: ${panchangItem.date}`;
+                
+                const chatHistory = [{ role: "user", parts: [{ text: prompt }] }];
+                const payload = { contents: chatHistory };
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+                
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const result = await response.json();
+
+                let interpretationText = "Could not retrieve interpretation.";
+                if (result.candidates && result.candidates.length > 0 &&
+                    result.candidates[0].content && result.candidates[0].content.parts &&
+                    result.candidates[0].content.parts.length > 0) {
+                    interpretationText = result.candidates[0].content.parts[0].text;
+                }
+                
+                interpretationDiv.innerHTML = interpretationText;
+                interpretationDiv.classList.remove('hidden');
+
+            } catch (error) {
+                console.error('Error fetching interpretation:', error);
+                interpretationDiv.innerHTML = `<p class="text-red-600">Sorry, we couldn't get the interpretation at this time.</p>`;
+                interpretationDiv.classList.remove('hidden');
+            } finally {
+                // Hide button after showing result
+                button.style.display = 'none';
+            }
+        }
+
+        /**
+         * Mocks the fetch call to the backend for Panchang data.
+         */
+        function mockFetchPanchang(startDate, endDate, location) {
+            console.log(`Mocking fetch for ${startDate} to ${endDate} at ${location}`);
+            return new Promise(resolve => {
+                setTimeout(() => {
+                    resolve({
+                        panchang: [{
+                            date: "2025-07-07",
+                            tithi: "Shukla Dwadashi upto 08:33 AM",
+                            nakshatra: "Anuradha upto 10:17 PM",
+                            yoga: "Siddhi upto 01:44 PM",
+                            karana: "Balava upto 08:33 AM",
+                            sunrise: "05:33 AM",
+                            sunset: "07:22 PM"
+                        }, {
+                            date: "2025-07-08",
+                            tithi: "Shukla Trayodashi upto 10:01 AM",
+                            nakshatra: "Jyeshtha upto 11:59 PM",
+                            yoga: "Vyatipata upto 02:30 PM",
+                            karana: "Kaulava upto 10:01 AM",
+                            sunrise: "05:34 AM",
+                            sunset: "07:22 PM"
+                        }]
+                    });
+                }, 1000);
+            });
+        }
+
+        /**
+         * Displays the fetched panchang data on the page.
+         */
+        function displayPanchangData(panchangList) {
+            if (!panchangList || panchangList.length === 0) {
+                panchangDataContainer.innerHTML = `<p class="text-center text-gray-500">No data found.</p>`;
+                return;
+            }
+
+            const html = panchangList.map(item => `
+                <div class="bg-gray-50 p-5 rounded-xl border border-gray-200">
+                    <h3 class="text-xl font-bold text-blue-800 mb-4">${new Date(item.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</h3>
+                    <div class="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm">
+                        <div class="bg-white p-3 rounded-lg shadow-sm"><strong>Tithi:</strong> ${item.tithi}</div>
+                        <div class="bg-white p-3 rounded-lg shadow-sm"><strong>Nakshatra:</strong> ${item.nakshatra}</div>
+                        <div class="bg-white p-3 rounded-lg shadow-sm"><strong>Yoga:</strong> ${item.yoga}</div>
+                        <div class="bg-white p-3 rounded-lg shadow-sm"><strong>Karana:</strong> ${item.karana}</div>
+                        <div class="bg-white p-3 rounded-lg shadow-sm"><strong>Sunrise:</strong> ${item.sunrise}</div>
+                        <div class="bg-white p-3 rounded-lg shadow-sm"><strong>Sunset:</strong> ${item.sunset}</div>
+                    </div>
+                    <div class="mt-4 text-center">
+                        <button class="interpret-btn bg-purple-600 text-white font-semibold px-4 py-2 rounded-lg hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 transition inline-flex items-center"
+                                data-panchang='${JSON.stringify(item)}'>
+                            ✨ Interpret this Panchang
+                        </button>
+                    </div>
+                    <div id="interp-${item.date}" class="interpretation-content hidden mt-4 p-4 bg-purple-50 border border-purple-200 rounded-lg text-gray-700">
+                        <!-- Gemini interpretation will be loaded here -->
+                    </div>
+                </div>
+            `).join('');
+            panchangDataContainer.innerHTML = html;
+        }
+
+        /**
+         * Displays an error message in the UI.
+         */
+        function showError(message) {
+            errorMessage.textContent = message;
+            errorMessage.classList.remove('hidden');
+            loader.style.display = 'none';
+        }
+    </script>
+</body>
+</html>
