@@ -115,7 +115,7 @@
             try {
                 // --- THIS IS THE FIX ---
                 // Now calling the real backend server instead of mock data.
-                const apiUrl = `http://127.0.0.1:5000/panchang?start_date=${startDate}&end_date=${endDate}&location=${encodeURIComponent(location)}`;
+                const apiUrl = `https://zany-broccoli-7vxwvrxgvwq6fpgv6-5000.app.github.dev/panchang?start_date=${startDate}&end_date=${endDate}&location=${encodeURIComponent(location)}`;
                 const response = await fetch(apiUrl);
                 
                 if (!response.ok) {
