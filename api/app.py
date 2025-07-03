@@ -51,34 +51,55 @@ def scrape_panchang_for_day(date_obj, location_str):
             print(f"DEBUG: First 1000 characters of received HTML: {response.text[:1000]}") # Print snippet
             print(f"DEBUG: Total length of received HTML: {len(response.text)} bytes") # Print total length
 
-            # Fallback: Try to find a div that contains a dpTableKey
-            key_element_in_page = soup.find('div', class_='dpTableKey')
-            if key_element_in_page:
+            # Fallback: Try to find a div that contains the 'Sunrise' dpTableKey, and then its parent
+            sunrise_key_element = soup.find('div', class_='dpTableKey', string='Sunrise')
+            if sunrise_key_element:
                 # Find the closest common ancestor that likely wraps all panchang data
-                # This might need adjustment based on actual site structure.
-                panchang_card = key_element_in_page.find_parent('div') 
-                print(f"DEBUG: Fallback found a parent div for 'dpTableKey'. Using this as panchang_card.")
+                # We'll traverse up the parent chain until we find a div that contains at least 5 dpTableKey elements.
+                current_parent = sunrise_key_element.find_parent('div')
+                while current_parent:
+                    if len(current_parent.find_all('div', class_='dpTableKey')) >= 5: # Assuming at least 5 keys (Sunrise, Sunset, Tithi, Nakshatra, Yoga, Karana)
+                        panchang_card = current_parent
+                        print(f"DEBUG: Fallback found a suitable parent div with multiple 'dpTableKey' elements. Using this as panchang_card.")
+                        break
+                    current_parent = current_parent.find_parent('div')
+                
+                if not panchang_card: # If loop finishes without finding a suitable parent
+                    print(f"WARNING: Fallback could not find a parent div containing at least 5 'dpTableKey' elements for {date_str_for_url}.")
+                    # As a last resort, use the direct parent of the sunrise key element
+                    panchang_card = sunrise_key_element.find_parent('div')
+                    print(f"DEBUG: Using direct parent of 'Sunrise' key as panchang_card as a last resort (may result in partial data).")
             else:
-                print(f"ERROR: Could not find 'div.dpPanchangCard' and no 'div.dpTableKey' found on the page for {date_str_for_url}. Website structure has likely changed significantly or content is missing.")
+                print(f"ERROR: Could not find 'div.dpPanchangCard' and no 'div.dpTableKey' for 'Sunrise' found on the page for {date_str_for_url}. Website structure has likely changed significantly or content is missing.")
                 return None
+
+        if not panchang_card: # Final check after all attempts
+            print(f"CRITICAL ERROR: Panchang card could not be identified for {date_str_for_day} after all attempts.")
+            return None
+        else:
+            print(f"DEBUG: Panchang card identified. Attempting to extract data from it.")
 
         data = {'date': date_obj.strftime('%Y-%m-%d')}
         
         # Helper function to get value from the new table structure
         def get_value_from_table(key_name):
             try:
-                # Find the div with the key's text (e.g., "Sunrise") within the identified panchang_card
-                key_element = panchang_card.find('div', class_='dpTableKey', string=key_name)
-                if key_element:
-                    # The value is in the next sibling div with class 'dpTableValue'
-                    value_element = key_element.find_next_sibling('div', class_='dpTableValue')
-                    if value_element:
-                        # Get all text parts and join them
-                        return ' '.join(value_element.stripped_strings).strip()
-                    else:
-                        print(f"WARNING: Could not find 'dpTableValue' sibling for key '{key_name}' on {date_str_for_url}.")
-                else:
-                    print(f"WARNING: Could not find 'dpTableKey' element with text '{key_name}' on {date_str_for_url}.")
+                # Find all potential key elements within the identified panchang_card
+                key_elements = panchang_card.find_all('div', class_='dpTableKey')
+                
+                for key_element in key_elements:
+                    # Check if the stripped text of the key element contains the key_name
+                    # This makes it more robust against minor text variations (e.g., extra spaces, hidden characters)
+                    if key_name.lower() in ' '.join(key_element.stripped_strings).strip().lower():
+                        # The value is in the next sibling div with class 'dpTableValue'
+                        value_element = key_element.find_next_sibling('div', class_='dpTableValue')
+                        if value_element:
+                            return ' '.join(value_element.stripped_strings).strip()
+                        else:
+                            print(f"WARNING: Could not find 'dpTableValue' sibling for key '{key_name}' (matched via '{' '.join(key_element.stripped_strings).strip()}') on {date_str_for_url}.")
+                            return "Not Found" # Return Not Found if value element is missing
+                
+                print(f"WARNING: Could not find 'dpTableKey' element containing text '{key_name}' on {date_str_for_url}.")
             except Exception as e:
                 print(f"ERROR: Exception while extracting '{key_name}' for {date_str_for_url}: {e}")
             return "Not Found"
@@ -127,7 +148,7 @@ def get_panchang():
         end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
     except ValueError:
         print(f"ERROR: Invalid date format received: start_date={start_date_str}, end_date={end_date_str}")
-        return jsonify({"error": "Invalid date format. Use YYYY-MM-DD."}), 400
+        return jsonify({"error": "Invalid date format. Use THAT-MM-DD."}), 400
 
     all_panchang_data = []
     current_date = start_date
