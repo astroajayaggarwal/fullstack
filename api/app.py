@@ -23,67 +23,88 @@ def scrape_panchang_for_day(date_obj, location_str):
     # Format the date into DD/MM/YYYY for the URL
     date_str_for_url = date_obj.strftime('%d/%m/%Y')
     
-    # --- IMPORTANT NOTE ON LOCATION ---
-    # Drik Panchang's location handling is complex. For this code to work reliably,
-    # we are using a simplified method. A full implementation would require a 
-    # more advanced setup to find the correct city ID for every possible location.
-    # We will use a geoname-id for New Delhi as a default for this example.
-    # The user's location input is received but not fully used in this simplified version.
+    # Using a fixed geoname-id for New Delhi.
+    # If you need to support other locations, you'd need a mechanism to find their geoname-id.
     geoname_id = "1261481" # This is the ID for New Delhi, India
     
     url = f"https://www.drikpanchang.com/panchang/day-panchang.html?geoname-id={geoname_id}&date={date_str_for_url}"
     
-    print(f"Attempting to scrape URL: {url}")
+    print(f"Attempting to scrape URL: {url} for date {date_str_for_url}")
 
     try:
         # We must send a 'User-Agent' header to mimic a real browser visit
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
-        response = requests.get(url, headers=headers, timeout=10)
-        # This line will raise an error if the website couldn't be reached (e.g., 404 Not Found)
-        response.raise_for_status()
+        response = requests.get(url, headers=headers, timeout=15)
+        response.raise_for_status() # Raise an HTTPError for bad responses (4xx or 5xx)
 
         # Use BeautifulSoup to parse the HTML content of the page
         soup = BeautifulSoup(response.text, 'html.parser')
+        print(f"Successfully fetched HTML content for {date_str_for_url}. Response status: {response.status_code}")
 
         # --- Finding the Data ---
-        # We find the main table containing the panchang details.
-        # NOTE: These selectors are based on the website's structure as of July 2025.
-        # If the website changes its design, these selectors will need to be updated.
-        panchang_table = soup.find('div', class_='dpPanchang')
+        # First, try to find the main panchang card using its primary class
+        panchang_card = soup.find('div', class_='dpPanchangCard')
         
-        if not panchang_table:
-            print(f"Could not find the main panchang table on the page for {date_str_for_url}.")
-            return None
+        # If dpPanchangCard is not found, log the received HTML snippet for debugging
+        if not panchang_card:
+            print(f"WARNING: 'div.dpPanchangCard' not found for {date_str_for_url}.")
+            print(f"DEBUG: First 1000 characters of received HTML: {response.text[:1000]}") # Print snippet
+            print(f"DEBUG: Total length of received HTML: {len(response.text)} bytes") # Print total length
 
-        # The data is in rows. We find all rows.
-        rows = panchang_table.find_all(class_='dpRow')
-        
+            # Fallback: Try to find a div that contains a dpTableKey
+            key_element_in_page = soup.find('div', class_='dpTableKey')
+            if key_element_in_page:
+                # Find the closest common ancestor that likely wraps all panchang data
+                # This might need adjustment based on actual site structure.
+                panchang_card = key_element_in_page.find_parent('div') 
+                print(f"DEBUG: Fallback found a parent div for 'dpTableKey'. Using this as panchang_card.")
+            else:
+                print(f"ERROR: Could not find 'div.dpPanchangCard' and no 'div.dpTableKey' found on the page for {date_str_for_url}. Website structure has likely changed significantly or content is missing.")
+                return None
+
         data = {'date': date_obj.strftime('%Y-%m-%d')}
         
-        # A helper function to safely get text from a row
-        def get_value_from_row(row_name):
-            for row in rows:
-                label_element = row.find(class_='dpLabel')
-                if label_element and row_name in label_element.text:
-                    value_element = row.find(class_='dpValue')
-                    return value_element.text.strip() if value_element else "Not Found"
+        # Helper function to get value from the new table structure
+        def get_value_from_table(key_name):
+            try:
+                # Find the div with the key's text (e.g., "Sunrise") within the identified panchang_card
+                key_element = panchang_card.find('div', class_='dpTableKey', string=key_name)
+                if key_element:
+                    # The value is in the next sibling div with class 'dpTableValue'
+                    value_element = key_element.find_next_sibling('div', class_='dpTableValue')
+                    if value_element:
+                        # Get all text parts and join them
+                        return ' '.join(value_element.stripped_strings).strip()
+                    else:
+                        print(f"WARNING: Could not find 'dpTableValue' sibling for key '{key_name}' on {date_str_for_url}.")
+                else:
+                    print(f"WARNING: Could not find 'dpTableKey' element with text '{key_name}' on {date_str_for_url}.")
+            except Exception as e:
+                print(f"ERROR: Exception while extracting '{key_name}' for {date_str_for_url}: {e}")
             return "Not Found"
 
-        # Extract each piece of data
-        data['sunrise'] = get_value_from_row('Sunrise')
-        data['sunset'] = get_value_from_row('Sunset')
-        data['tithi'] = get_value_from_row('Tithi')
-        data['nakshatra'] = get_value_from_row('Nakshatra')
-        data['yoga'] = get_value_from_row('Yoga')
-        data['karana'] = get_value_from_row('Karana')
+        # Extract each piece of data using the new helper
+        data['sunrise'] = get_value_from_table('Sunrise')
+        data['sunset'] = get_value_from_table('Sunset')
+        data['tithi'] = get_value_from_table('Tithi')
+        data['nakshatra'] = get_value_from_table('Nakshatra')
+        data['yoga'] = get_value_from_table('Yoga')
+        data['karana'] = get_value_from_table('Karana')
 
+        # If any of the main values are not found, it's a failure for that day's data
+        if "Not Found" in [data['sunrise'], data['sunset'], data['tithi'], data['nakshatra'], data['yoga'], data['karana']]:
+            print(f"WARNING: One or more core data points (Sunrise, Tithi, etc.) could not be found for {date_str_for_url}. Returning partial data.")
+            # Return whatever was found, and let the frontend handle "Not Found" values
+            return data 
+        
+        print(f"Successfully scraped data for {date_str_for_url}: {data}")
         return data
 
     except requests.exceptions.RequestException as e:
-        print(f"Error fetching URL {url}: {e}")
+        print(f"ERROR: Request failed for URL {url}: {e}")
         return None
     except Exception as e:
-        print(f"An error occurred during scraping: {e}")
+        print(f"ERROR: An unexpected error occurred during scraping for {date_str_for_url}: {e}")
         return None
 
 
@@ -98,34 +119,38 @@ def get_panchang():
     location = request.args.get('location')
 
     if not all([start_date_str, end_date_str, location]):
-        return jsonify({"error": "Missing required parameters"}), 400
+        print("ERROR: Missing required parameters in request.")
+        return jsonify({"error": "Missing required parameters (start_date, end_date, location)."}), 400
 
     try:
         start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
         end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
     except ValueError:
+        print(f"ERROR: Invalid date format received: start_date={start_date_str}, end_date={end_date_str}")
         return jsonify({"error": "Invalid date format. Use YYYY-MM-DD."}), 400
 
     all_panchang_data = []
     current_date = start_date
-    
+      
     # Loop from the start date to the end date
     while current_date <= end_date:
-        print(f"Scraping data for {current_date.strftime('%Y-%m-%d')}...")
+        print(f"Processing data for {current_date.strftime('%Y-%m-%d')}...")
         day_data = scrape_panchang_for_day(current_date, location)
         
         if day_data:
             all_panchang_data.append(day_data)
         else:
             # If scraping fails for one day, we can add an error entry
+            print(f"Failed to scrape data for {current_date.strftime('%Y-%m-%d')}. Adding error entry.")
             all_panchang_data.append({
                 "date": current_date.strftime('%Y-%m-%d'),
-                "error": "Failed to retrieve data for this day."
+                "error": "Failed to retrieve complete data for this day. Check backend logs for details."
             })
-        
+            
         # Move to the next day
         current_date += timedelta(days=1)
 
+    print(f"Finished processing dates. Returning {len(all_panchang_data)} entries.")
     return jsonify({"panchang": all_panchang_data})
 
 
